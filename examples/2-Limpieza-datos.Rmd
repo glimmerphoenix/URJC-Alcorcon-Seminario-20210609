@@ -1,0 +1,1080 @@
+---
+title: "2-Limpieza y Preparación de Datos"
+author: "Felipe Ortega"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  bookdown::html_document2:
+    includes:
+      in_header: "google-font.html"
+    css: styles.css
+    toc: true  # Incluye tabla de contenidos automática
+    toc_float: true  # Mantener ToC visible a la izquierda
+    toc_depth: 2  # Incluir dos niveles de profundidad en ToC
+    number_sections: true  # Autonumerado de secciones
+    theme: flatly  # Tema Bootstrap a emplear, 
+                  # se puede elegir entre las opciones por defecto de Bootstrap:
+                  # default, cerulean, journal, flatly, readable, spacelab, 
+                  # united, cosmo, lumen, paper, sandstone, simplex, and yeti
+    highlight: tango
+    code_folding: show  # Oculta el código de R, incluye un botón para mostrarlo
+                        # u ocultarlo
+    df_print: paged  # Utiliza paged para mostrar mejor las tablas de datos
+    fig_width: 7  # Anchura por defecto de las graficas (en pulgadas)
+    fig_height: 5  # Altura por defecto de las gráficas (en pulgadas)
+    fig_caption: true  # Incluye pie de figura y tablas
+                       # El texto del caption se incluye en el argumento fig.cap
+                       # en cada chunk
+bibliography: refs-limpieza.bib  # Fichero de referencias bibliográficas
+                              # en formato BibTeX
+link-citations: yes  # Enlaces a entradas de bibliografía al final
+---
+
+```{r setup, include=FALSE}
+# Librerías requeridas para ejecutar este documento
+library(Hmisc)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(egg)
+library(GGally)
+
+library(ISLR)
+library(car)
+library(DMwR2)
+library(faraway)
+library(mlbench)
+
+library(knitr)
+library(kableExtra)
+library(htmltools)
+library(bsplus)
+library(RColorBrewer)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introducción
+
+En este tema describiremos las tareas más habituales de limpieza
+y preparación de datos, creando **variables de entrada** para nuestros modelos/algoritmos.
+En el campo del aprendizaje máquina, a las variables de entrada se las denomina
+**features** (*características*) y este proceso se suele conocer como ***feature engineering*** (dando
+cuenta de la naturaleza práctica y empírica de este proceso, en muchos casos).
+
+Entre otros, abordaremos los siguientes aspectos principales:
+
+1. Tratamiento de variables cuantitativas.
+2. Tratamiento de variables categóricas, incluyendo codificación.
+3. Detección de datos faltantes (*missing data*) e imputación de datos.
+4. Comprobación de reglas en datos (*quality check*).
+5. Combinación de variables (reducción de dimensionalidad).
+6. Otros métodos de construcción de variables.
+7. Algoritmos para *feature engineering*.
+
+## Conjuntos de datos
+
+A continuación, se presentan los principales conjuntos de datos que
+vamos a utilizar.
+
+### Datos de paquetes R
+
+```{r df-data-packages, echo=FALSE}
+
+text_tbl <- data.frame(
+  Items = c("dplyr::iris","`ISLR::Auto`", "`DMwR2::algae`", "`car::UN`", "`faraway::pima`",
+            "`mlbench::Sonar`"),
+  Features = c(
+    "Clásico dataset con información botánica sobre tres especies de flores iris.",
+    "Consumo de combustible, potencia del motor e información adicional sobre diferentes
+    modelos de coches.",
+    "Propiedades químicas extraídas de muestras de agua procedentes de distintos ríos europeos,
+    junto a datos sobre niveles de concentración de 7 tipos de algas potencialmente dañinas.
+    Datos recabados en la red de investigación [ERUDIT](http://www.erudit.de/erudit).", 
+    "Datos socioeconómicos de 213 lugares, la mayoría miembros de la ONU.",
+    "Datos sobre un estudio elaborado por el Instituto Nacional de Diabetes, Enfermedades
+    DIgestivas y de Riñón (EE.UU.), sobre 768 mujeres adultas de la etnia india Pima, cerca
+    de Phoenix.",
+    "Datos de un estudio de Gorman y Sejnowsk (1988), para un benchmark de modelos de predicción
+    con redes neuronales. El modelo debe clasificar señales sonar rebotadas por un objeto metálico
+    cilíndrico de aquellas devueltas por una roca con forma aproximadamente cilíndrica."
+  )
+)
+
+kable(text_tbl) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, bold = TRUE) 
+
+```
+
+
+### Datos de otras fuentes
+
+```{r df-data-sources, echo=FALSE}
+
+text_tbl <- data.frame(
+  Items = c("`AcmeTelephoneABT.csv`"),
+  Features = c(
+    "Datos sintéticos sobre un caso de estudio hipotético, para predecir la fuga
+    de clientes de una compañía telefónica [@kelleher2015]"
+  )
+)
+
+kable(text_tbl) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, bold = T)
+
+```
+
+
+## Paquetes R
+
+Estos son los paquetes de R utilizados en este documento.
+
+```r
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(egg)
+library(GGally)
+
+library(ISLR)
+library(car)
+library(DMwR2)
+library(faraway)
+library(mlbench)
+
+library(knitr)
+library(kableExtra)
+library(htmltools)
+library(bsplus)
+library(RColorBrewer)
+```
+
+# Análisis exploratorio de los datos (EDA)
+
+El primer paso siempre debe consistir en efectuar un análisis exploratorio de los
+datos, para empezar a detectar posibles problemas.
+
+```{r hist-dens-UN, fig.cap="Histograma y diagrama de densidad de probabilidad para la variable `ppgdp` del dataset `UN`.", fig.dim=c(12, 8)}
+
+UN %>% select(2:7) %>%
+  na.omit() %>%
+  ggpairs(columns = 2:6, ggplot2::aes(colour=group))
+```
+
+# Transformación de variables cuantitativas
+
+El primer conjunto de operaciones comprende la transformación de valores de variables
+cuantitativas. Con frecuencia, el objetivo de esta tarea es obtener una variable cuya
+distribución de valores sea:
+
+- Más simétrica y con menor dispersión que la original.
+- Más semejante a una distribución normal (e.g. para algunos modelos lineales).
+- Restringida en un intervalo de valores (e.g. $[0, 1]$).
+
+La forma más sencilla de detectar que alguna de nuestras variables necesita ser
+transformada es representar un gráfico que muestre la distribución de valores de la
+variable. Por ejemplo, un histograma o un diagrama de densidad de probabilidad (o ambos).
+
+## Transformaciones para igualar dispersión
+
+En el caso de la variable `ppgdp` del dataset `UN`, podemos ver que sus valores para t
+odos los grupos están muy sesgados. Sería conveniente transformarla para que la
+distribución de valores fuese más homogénea. Este resultado se consigue aplicando
+una **transformación logarítmica**.
+
+```{r log10-transform, fig.dim=c(10,4), fig.cap="Comparativa de función de densidad de probabilidad de la variable `ppgdp` del dataset `UN` antes y después de aplicar la transformación logarítmica."}
+p1 <- UN %>% select(group, ppgdp) %>%
+  na.omit() %>%
+  ggplot(aes(x=ppgdp, colour=group)) +
+    geom_density()
+
+p2 <- UN %>% mutate(log10_ppgdp = log10(ppgdp)) %>%
+  select(group, log10_ppgdp) %>%
+  na.omit() %>%
+  ggplot(aes(x=log10_ppgdp, colour=group)) +
+    geom_density()
+
+grid.arrange(p1, p2, nrow = 1)
+
+```
+
+El uso de los logaritmos tiene su propia recomendación en preparación de datos
+[@fox2011]: *"si la variable es estrictamente positiva, no tiene un límite
+superior para sus valores, y su rango abarca dos o más órdenes de magnitud (potencias
+de 10), entonces la transformación logarítmica suele ser útil."*. A la inversa,
+cuando la variable tiene un rango de valores pequeño (menor de un orden de
+magnitud), el logaritmo o cualquier otra transformación simple no ayudará mucho.
+
+La versión general de esta transformación son las **transformaciones de escala-potencia**
+(*scaled-power transformations*), también denominadas **transformaciones de
+Box-Cox** por haber sido presentadas por primera vez en un artículo de estos
+autores en 1964.
+
+$$x^{(\lambda)} =
+    \begin{cases}
+      \frac{x^\lambda - 1}{\lambda} & \text{when $\lambda \neq 0$}\\
+      log_e(x) & \text{when $\lambda = 0$}
+    \end{cases}$$
+    
+La función `car::symbox(...)` permite probar varias combinaciones típicas
+del parámetro $\lambda$, para comprobar con cuál de ellas obtenemos una distribución
+más simétrica de valores.
+
+```{r car-symbox, fig.dim=c(7,5), fig.cap="Gráfica generada por la función `car::symbox` para comprobación de la transformación más adecuada para igualar dispersión."}
+UN %>% select(group, ppgdp) %>%
+  na.omit() %>%
+  filter(group == 'other') %>%
+  symbox(~ ppgdp, data = .)
+```
+
+En el caso de que queramos comprobar qué transformación es más adecuada cuando
+la variable puede depender de otro valor categórico, la función `car::spreadLevelPlot(...)`
+es muy conveniente. En este caso, se representa el logaritmo del IQR de la variable
+cuantitativa (dispersión) frente al logaritmo de la mediana en cada grupo (nivel).
+Debemos recordar que la variable cuantitativa debe ser estrictamente positiva. Para
+garantizar esto, podemos por ejemplo sumar a todos los valores una constante (*offset*),
+de forma que los llevemos todos al lado positivo de la escala. Esta operación no afecta
+para nada al cálculo del tipo de transformación a realizar (se traslada su posición, pero
+no las propiedades de dispersión de la distribución).
+
+```{r car-spreadLevelPlot, fig.cap="Gráfica generada por la función `car::symbox` para comprobación de la transformación más adecuada para igualar dispersión."}
+UN_splvplot <- UN %>% select(group, infantMortality) %>%
+  na.omit()
+  spreadLevelPlot(infantMortality ~ group, data = UN_splvplot)
+```
+
+Si hay una relación entre la dispersión y el nivel, como en este caso, se elige la
+transformación ajustando una recta a los puntos del gráfico. Si la pendiente de la
+recta es $b$, una posible transformación útil es la potencia $1-b$. En el caso
+de la variable `infantMortality`, el valor sugerido es $-0.163$, por lo que una
+aproximación usando la transformación logarítmica puede ser válida.
+
+```{r boxplots-infantMortality, fig.dim=c(10,5), fig.cap="Efecto de la transformación logarítmica en la variable `infantMortality` del dataset `UN`."}
+p1 <- UN %>% select(group, infantMortality) %>%
+  na.omit() %>%
+  ggplot(aes(x=group, y=infantMortality, fill=group)) +
+  geom_boxplot()
+
+p2 <- UN %>% mutate(log10_infantMortality = log10(infantMortality)) %>%
+  select(group, log10_infantMortality) %>%
+  na.omit() %>%
+  ggplot(aes(x=group, y=log10_infantMortality, fill=group)) +
+  geom_boxplot()
+
+grid.arrange(p1, p2, nrow = 1)
+  
+```
+
+<br/ >
+En la siguiente Tabla se resumen algunas transformaciones alternativas que
+pueden resultar útiles.
+<!-- SOURCE: -->
+<!-- http://rogeriofvieira.com/wp-content/uploads/2016/05/Data-Transformations-1.pdf -->
+
+```{r alt-transformations, echo=FALSE}
+
+text_tbl <- data.frame(
+  Transformación = c("Raíz cuadrada: $\\sqrt{x}$ `sqrt(x)`", "Inversa: $1/x$",
+                     "Arcoseno: $sin^{-1}(x)$"),
+  Propiedades = c(
+    "Suele ser útil cuando tratamos con conteos. Transforma una Poisson en
+    una Normal. Es menos intensa que el logaritmo",
+    "Si la transformación logarítmica se queda \"corta\", podemos probar con la inversa",
+    "Útil para porcentajes y proporciones que no se distribuyen normalmente"
+  )
+)
+
+kable(text_tbl) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, width="15em", bold = T)
+
+```
+
+Por último, si la distribución presenta un importante **sesgo negativo**, es decir, la cola
+larga de valores está a la izquierda y no a la derecha del cuerpo principal, entonces la
+solución es *reflejar la distribución* en primer lugar, restando cada uno de los valores
+a una constante:
+
+$$ T_{especular}(x_{i}) = k-x_{i}, \; \text{donde } k = max(x_i) + 1.$$
+
+```{r panel-undo-log, echo=FALSE}
+tags$br()
+# Cuerpo del mensaje
+body_text = tagList(
+  tags$p("Como hemos visto, al aplicar la transformación logarítmica sobre una variable de
+         entrada y la salida podemos mejorar la resolución en ambos ejes de representación, 
+         con lo que la relación entre ambas es mucho más evidente. Ahora queda el problema
+         de cómo deshacer la transformación, para poder presentar los resultados de un
+         modelo en las mismas unidades que las variables originales."),
+  
+  tags$p("Supongamos que hemos propuesto el siguiente modelo, una vez transformadas la
+         variable de entrada y la de salida:"),
+  
+  "$$\\log(\\text{infantMortality}) = \\beta_0 + \\beta_1 \\log(\\text{ppgdp}) + \\varepsilon,$$",
+  
+  tags$p("siendo \\(\\varepsilon\\) un error aditivo de media 0 y varianza cte. típico en regresión."),
+  
+  tags$p("La base del logaritmo que utilicemos es indiferente. En este
+         caso estamos usando el logaritmo natural o neperiano, con base \\(e\\)
+         número de Euler). Para deshacer la operación tomamos exponentes (exponenciación) 
+         en base \\(e\\) en ambos términos :"),
+
+  "$$\\begin{array} {lcl} \\text{infantMortality} & = & \\exp(\\beta_0 + \\beta_1 \\log(ppgdp) + \\varepsilon) \\\\ & = & \\exp(\\beta_0) \\; \\text{ppgdp}^{\\beta_1} \\; \\exp(\\varepsilon) \\end{array}$$",
+  
+  tags$p("Vemos ahora que el error \\(\\exp(\\varepsilon)\\) entra en la ecuación en las
+         unidades originales multiplicando y no sumando. Es decir, el", tags$b("error aditivo"),
+         "en la escala logarítmica de medida se ha convertido en un ", 
+         tags$b("error multiplicativo")," en la escala original.")
+)
+
+
+bs_panel(
+  panel_type = "primary",  # class="panel panel-primary" de bootstrap web framework
+  heading = tags$div(class="panel-heading", 
+                     tags$h4("Detalle: Cómo deshacer la transformación de las variables")),
+  body = tags$div(class="panel-body", body_text)
+)
+```
+
+### Ejemplo 1: Regresión lineal log-log
+
+Si proponemos un modelo de regresión lineal para la variable `infantMortality` como
+salida y `ppgdp` como entrada, utilizando una doble escala logarítmica (en base 10)
+en ambos ejes, tenemos:
+
+```{r regression-log-log}
+model_log_log = lm(log(infantMortality) ~ log(ppgdp), data=UN, na.action = 'na.exclude')
+summary(model_log_log)
+```
+
+La representación gráfica del modelo se muestra en la Figura 3.5, con la recta de regresión
+en azul oscuro y un ajuste suavizado (LOESS) en naranja:
+
+```{r regression-log-log-plot, fig.cap="Modelo de regresión para las variables `ppgdp` e `infantMortality`, ambas transformadas a escala logarítmica (en base 10)."}
+my_cols = brewer.pal(5, "Set1")
+UN %>% mutate(log_infantMortality = log(infantMortality),
+              log_ppgdp = log(ppgdp)) %>%
+  select(log_ppgdp, log_infantMortality) %>%
+  na.omit() %>%
+  ggplot(aes(x=log_ppgdp, y=log_infantMortality)) +
+  geom_point(color=my_cols[3]) +
+  geom_smooth(method=loess, fill=my_cols[2], color=my_cols[2]) +
+  geom_smooth(method=lm, fill=my_cols[5], color=my_cols[5])
+```
+
+Por tanto, si `ppgdp` realmente es una causa de `infantMortality` e incrementamos el
+PIB per cápita de un país en un 1% hasta $1.01 \times ppgdp$, la mortalidad infantil sería:
+
+$$\exp(\beta_0)(1.01 \times \text{ppgdp})^{\beta_1} \: = \: 1.01^{\beta_1} \times \exp(\beta_0)(\text{ppgdp}^{\beta_1})$$
+
+En este caso, $\beta_1 = -0.617$ por lo que tenemos un cambio respecto a la situación
+inicial de la variable de salida de $1.01^{-0.617} = 0.994$. Es decir, para un incremento
+de un 1% en el PIB per cápita de un país, la mortalidad infantil se vería
+reducida en un 0.6% (ya que el modelo dice que su valor es 99.4% de su valor de partida).
+Los economistas llaman a este tipo de coeficiente ($\beta_1$) en una regresión log-log
+un coeficiente de *elasticidad* [@fox2011].
+
+## Transformaciones para igualar escalas
+
+También es bastante común aplicar transformaciones en datos cuantitativos para igualar
+las escalas de representación de las variables. En muchos modelos, si una de nuestras
+variables tiene una escala mucho mayor que las demás, sus valores tienden a predominar
+en los resultados, enmascarando la influencia de las demsá variables.
+
+<!-- http://www.faqs.org/faqs/ai-faq/neural-nets/part2/section-16.html -->
+
+Por este motivo, en muchos modelos es importante garantizar que todas las variables
+se representan en escalas comparables, de forma que ninguna predomine sobre el resto.
+Conviene aclarar un poco algunos términos que se suelen emplear de forma indistinta:
+
+  - **Reescalado o cambio de escala**: Consiste en sumar o restar una constante a un
+  vector, y luego multiplicar o dividir por una constante. Por ejemplo, para transformar
+  la unidad de medida de una variable (grados Farenheit $\rightarrow$ grados Celsius).
+  - **Normalización**: Consiste en dividir por la norma de un vector, por ejemplo para
+  hacer su distancia euclídea igual a 1.
+  - **Estandarización**: Consiste en restar a un vector una medida de localización
+  o nivel (e.g. media, mediana) y dividir por una medida de escala (dispersión).
+  Por ejemplo, si restamos la media y dividimos por la desviación típica hacemos 
+  que la distribución tenga media 0 y desviación típica 1.
+
+Algunas alternativas comunes son:
+
+$$\text{Estandarización} \quad \rightarrow \quad Y = \frac{X-\bar{x}}{s_{x}}$$
+
+$$\text{Escalado min-max} \quad \rightarrow \quad Y = \frac{X-min_{x}}{max_{x} -  min_{x}}$$
+
+En R, la función `scale()` se puede utilizar para realizar estas operaciones de
+estandarización. Automáticamente, puede actuar sobre las columnas de un `data.frame`,
+aplicando la misma operación a todas ellas (siempre que todas sean cuantitativas).
+
+Por ejemplo, para la operación de *estandarización*:
+
+```{r iris-standarization}
+data(iris)
+iris %>%
+  mutate_at(vars(-Species), funs(scale(.)))
+```
+
+<br/ >
+Y para el *escalado min-max* tenemos:
+
+```{r iris-scale-min-max}
+iris %>%
+  mutate_at(vars(-Species), funs(scale(., center = min(.), scale = max(.) - min(.))))
+```
+
+
+## Variables con rango restringido
+
+Cuando nuestras variables tienen un rango restringido de valores, por ejemplo en el
+intervalo $[0, 1]$ (proporciones, porcentajes, etc.) debemos incluir esta restricción
+a la hora de considerar las transformaciones más adecuadas para nuestros datos.
+
+En la literatura se pueden encontrar algunos ejemplos de transformaciones para este
+tipo de datos [@fox2011]:
+
+  1. La transformación arcoseno raíz cuadrada: $T_{asinsqrt}(x) = sin^{-1}(\sqrt{x})$.
+  
+  2. La transformación *logit* o *log-odds*: $T_{logit}(x) = \text{logit}(x) = log_e(\frac{x}{1-x})$.
+
+# Procesado de variables categóricas
+
+Cuando las variables de nuestro modelo de regresión son **cualitativas** en lugar de cuantitativas
+(como en la mayoría de ejemplos vistos hasta el momento), es necesario utilizar una estrategia
+específica para incluirlas en el sistema.
+
+Las situaciones más típicas son:
+
+  - Variables **dicotómicas**: con dos posibles categorías. Ej: hombre/mujer.
+  - Variables **politómicas**: con más de dos categorías. Ej: país de origen.
+  - Variables **ordinales** o de **ranking**: existe una ordenación entre las categorías. Ejs: titulación académica de mayor rango obtenida, nivel de satisfacción (bueno, regular, malo).
+    
+En R, las variables categóricas se denominan **factores** (*factors*) y sus categorías **niveles**
+(*levels*). Es importante procesarlos adecuadamente para que los modelos aprovechen la información
+que contienen estas variables. Por otro lado, si se codifica incorrectamente esta información los
+modelos pueden estar realizando operaciones absurdas aunque nos devuelvan resultados aparentemente
+válidos.
+
+En esta sección vamos a presentar simplemente algunas operaciones básicas para preparación y
+representación de datos categóricos. En el Tema 3 veremos con más detalle técnicas adicionales,
+así como métodos de representación gráfica cuando aparecen este tipo de variables.
+
+## El paquete `forcats`
+
+Dentro del ecosistema de paquetes `tidyverse` en R, 
+[el paquete `forcats`](https://forcats.tidyverse.org/index.html) está dedicado al tratamiento
+de datos categóricos. Aunque la 
+[lista completa de funciones](https://forcats.tidyverse.org/reference/index.html)  que incluye
+es más extensa, algunas de las más habituales son:
+
+- `fct_reorder()`: Reordenación de valores de un factor usando otra variable.
+- `fct_infreq()`: Reordenación de valores de un factor por su frencuencia de aparición.
+- `fct_relevel()`: Cambiar manualmente la ordenación de un factor (especificando el nuevo orden).
+- `fct_lump()`: Agrupar los valores más/menos frecuentes en una categoría global `"otros"`.
+
+Sin embargo, todas las funciones de este paquete dan por supuesto que los valores codificados
+en la tabla de datos original son correctos. En muchos casos esto no es cierto, y primero debemos
+arreglar manualmente (o usando programas especializados) los valores incorrectos que hayamos
+detectado en un EDA previo. El documento `2.A` de este tema presenta un análisis completo
+de los datos de **ACME Telephone**, que ilustra una situación de este tipo para las variables
+categóricas `regionType`, `marriageStatus` y `creditCard`.
+
+## Lectura de datos categóricos
+
+<!-- ## Ejemplo: *ACME Telephone* -->
+
+```{r acme-cat-import, echo=FALSE}
+# Lectura de datos
+# Strings como factores
+ACMETelephoneABT <- read.csv("data/ACMETelephoneABT.csv", na.strings=" ")
+
+# Corregir NAs y unificar valores en regionType
+ACMETelephoneABT$regionType[which(ACMETelephoneABT$regionType == " unknown")] <- NA
+ACMETelephoneABT$regionType[which(ACMETelephoneABT$regionType == " r")] <- " rural"
+ACMETelephoneABT$regionType[which(ACMETelephoneABT$regionType == " s")] <- " suburban"
+ACMETelephoneABT$regionType[which(ACMETelephoneABT$regionType == " t")] <- " town"
+ACMETelephoneABT$regionType = factor(ACMETelephoneABT$regionType)
+
+# Corregir NAs en marriageStatus
+ACMETelephoneABT$marriageStatus[which(ACMETelephoneABT$marriageStatus == " unknown")] <- NA
+ACMETelephoneABT$marriageStatus = factor(ACMETelephoneABT$marriageStatus)
+
+# Corregir NAs y unificar valores en creditCard
+ACMETelephoneABT$creditCard[which(ACMETelephoneABT$creditCard == " f")] <- " false"
+ACMETelephoneABT$creditCard[which(ACMETelephoneABT$creditCard == " no")] <- " false"
+ACMETelephoneABT$creditCard[which(ACMETelephoneABT$creditCard == " t")] <- " true"
+ACMETelephoneABT$creditCard[which(ACMETelephoneABT$creditCard == " yes")] <- " true"
+ACMETelephoneABT$creditCard = factor(ACMETelephoneABT$creditCard)
+
+# Asignar NAs a casos con edad = 0
+ACMETelephoneABT$age[which(ACMETelephoneABT$age == 0)] <- NA
+
+# Asumimos casos de income = 0 como NAs
+ACMETelephoneABT$income[which(ACMETelephoneABT$income == 0)] <- NA
+```
+
+El documento `2.A` de este tema muestra un análisis completo de los datos
+del caso *ACME Telephone*. En dicho proceso, vemos que las variables cualitativas se convierten
+explícitamente en factores mediante el código siguiente:
+
+```{r alphabetized, eval=FALSE}
+ACMETelephoneABT$regionType = factor(ACMETelephoneABT$regionType)
+ACMETelephoneABT$marriageStatus = factor(ACMETelephoneABT$marriageStatus)
+ACMETelephoneABT$creditCard = factor(ACMETelephoneABT$creditCard)
+```
+
+
+Por defecto, **R transforma columnas tipo `string` en factores** al leer los datos de un archivo.
+Aún así, puede que ese comportamiento por defecto haya sido configurado de otra manera.
+Podemos comprobar su valor con la siguiente instrucción:
+
+```{r strings-factors}
+default.stringsAsFactors()
+```
+
+Sin embargo, este comportamiento de transformar `strings` a factores [puede que no sea siempre el más adecuado](http://simplystatistics.org/2015/07/24/stringsasfactors-an-unauthorized-biography/).
+Además, por defecto, R **ordena los niveles de los factores alfabéticamente**, según sus etiquetas.
+Debemos tener cuidado con esto, puesto que en muchos análisis **es muy importante** saber 
+**qué nivel se está tomando como referencia**, de entre los valores posibles de un
+factor, para comparar con los restantes. 
+
+En ciertos modelos, la elección como referencia de uno de los valores del factor (típicamente
+el primero que aparece en la lista de niveles) cambia por completo los resultados, así como la
+interpretación de los mismos. 
+
+Además, en variables ordinales se debe respetar
+estrictamente el orden preestablecido de los niveles. Por ejemplo, una ordenación
+`("regular" < "bueno" < "malo")` es inaceptable. Para establecer una ordenación explícita
+entre los niveles hay que especificarla manualmente si no coincide con la alfabética, y además
+configurar el argumento `ordered = TRUE` en la función `factor()`:
+
+```{r example-ordered-fac}
+satisfaccion <- rep(c("malo", "bueno", "regular"), c(3,3,3))
+satisfaccion <- factor(satisfaccion, ordered = TRUE, levels = c("malo", "regular", "bueno"))
+satisfaccion
+```
+
+
+Por ejemplo, para comprobar qué nivel se toma como referencia en cada uno de
+los factores de la tabla `ACMETelephoneABT` usamos la funión `levels()`:
+
+```{r acme-cat-levels}
+levels(ACMETelephoneABT$creditCard)
+levels(ACMETelephoneABT$regionType)
+levels(ACMETelephoneABT$marriageStatus)
+```
+
+## Reordenación de niveles
+
+Si queremos recolocar los niveles podemos hacerlo de la siguiente forma:
+
+```{r reorder-levels, }
+reorder_marriage = factor(ACMETelephoneABT$marriageStatus, levels=(c(' yes', ' no', ' unknown')))
+levels(reorder_marriage)
+```
+
+Cuando leemos niveles ordinales, normalmente se representan mediante un ranking numérico. 
+En ese caso, R los interpreta normalmente como vector numérico y no como factor (solo se 
+plantea conversión automática con `strings`).
+
+```{r numeric-levels}
+# Ejemplo con datos ad-hoc
+drug = data.frame(dosage=c(1,1,2,1,4,4,2,4,8,8,8,4,8,1))
+class(drug$dosage)
+drug$dosage = factor(drug$dosage, levels = c("8", "4", "2", "1"), labels = c("D8", "D4", "D2", "D1"))
+levels(drug$dosage)
+```
+
+Alternativamente, se puede usar alguna de las funciones incluidas en el paquete `forcats` para
+reordenación de niveles, especialmente si nuestras instrucciones forman parte de una secuencia
+conectada mediante pipes (`%>%`) en `tidyverse`.
+
+## Contrastes entre niveles de un factor
+
+Al introducir un factor en un modelo de regresión, R crea automáticamente una serie de variables numéricas
+para tener en cuenta dicho factor en el modelo. Esas variables se denominan **contrastes** y existen varios
+métodos para generarlas.
+
+El método más extendido, y la opción por defecto en R, es aplicar la función `contr.treatment`. 
+Esta función actúa de la siguiente forma:
+
+  - Consideremos un factor con $m$ niveles.
+  - Se toma siempre como **nivel de referencia** el primer nivel que aparece en la lista
+  de posibles valores que toma la variable (e.g. que devuelve la función `levels()`).
+  - Entonces, `contr.treatment` genera `m-1` variables que se denominan **ficticias** 
+  (en inglés *dummy variables*).
+  - Para cada caso en el que nuestra variable toma como valor la categoría de referencia,
+  se ponen todas las `m-1` variables ficticias a cero en dicho caso (fila).
+  - Para el resto de casos, se pone a 1 la variable ficticia que corresponde con el valor
+  de la variable categórica en ese caso, y el resto de variables ficticias se dejan a 0.
+  
+Este no es el único procedimiento que podemos emplear para representar variables categóricas en nuestros
+modelos, sino que existen muchas otras alternativas [@fox2011; @faraway2016linear]. Más adelante, en el
+Tema 3, veremos otras variantes.
+    
+## Variables ficticias (matriz del modelo)
+
+Cuando creamos un modelo con variables ficticias es importante entender qué aproximación estamos
+proponiendo y cómo interpretar los resultados obtenidos. Supongamos un conjunto de datos sintético,
+con una variable de salida `y`, cuantitativa, y dos variables de entrada: una cuantitativa, `x` y
+otra categórica, `fac`. La variable `fac` tiene cuatro posibles valores: `norte`, `sur`, `este` y
+`oeste`.
+
+Los datos se presentan en la siguiente tabla.
+
+```{r example-dummy-coding-table}
+x = rnorm(50, mean=5, sd=2)
+fac = factor(rep(c('norte', 'sur', 'este', 'oeste'), c(13,19,10,8)))
+group_means = rep(c(12,20,8,1), c(13,19,10,8))
+jitter= rnorm(50, mean=5, sd=0.4)
+y = (3 * x) + jitter + group_means
+
+
+my_set = tibble(x = x, fac = fac, y = y)
+sample_n(my_set, 10)
+```
+
+
+La representación gráfica de la variable `y` contra `x`, en función de cada una de 
+las cuatro regiones es:
+
+```{r example-dummy-scatterplot, fig.cap="Representación gráfica de los puntos de nuestros datos sintéticos para el ejemplo de variables ficticias."}
+my_set %>%
+  ggplot(aes(y=y, x=x, colour=fac)) +
+  geom_point()
+```
+
+
+Al codificar nuestra variable categórica mediante **variables ficticias** (*dummy coding*), lo que
+hacemos es crear tres variables binarias que sustituyen en el modelo a la variable categórica original.
+La llamada `levels(fac)` nos devuelve la lista de posibles niveles de ese factor. Como `este` es el
+primer nivel que aparece, se toma como nivel de referencia. Las tres variables ficticias que se crean
+son `facnorte`, `facoeste` y `facsur`. Todos los casos en los que `fac="este"` tendrán esas tres
+variables a 0. Para el resto de casos, se pone a 1 la variable que coincide con el valor de `fac` en
+ese caso y el resto se dejan a 0. Por ejemplo, en todos los casos en los que `fac="norte"` la variable
+`facnorte` vale 1 y el resto 0.
+
+Podemos comprobar fácilmente el valor asignado en cada fila a nuestras variables ficticias inspeccionando
+la matriz del modelo, que generamos con la función `model.matrix()` de R. Se usa la fórmula `~ x + fac`,
+estándar de R, porque como hemos dicho esta forma de codificar es la aplicada por defecto al crear
+modelos que involucran factores.
+
+
+```{r example-dummy-coding-matrix}
+levels(fac)
+as_tibble(model.matrix(~ x + fac))
+```
+
+
+Si, por ejemplo, queremos ajustar un modelo de regresión a estos datos, tenemos:
+
+$$y = \beta_0 + \beta_1 x + \beta_{norte}facnorte + \beta_{oeste}facoeste + \beta_{sur}facsur$$
+
+En código de R, usando la función estándar `lm()`, tan solo escribimos la fórmula simple `y ~ x + fac`,
+puesto que el programa se encarga internamente de hacer *dummy coding*.
+
+```{r example-dummy-coding-model}
+model_dummy = lm(y ~ x + fac)
+summary(model_dummy)
+```
+
+
+Gráficamente, el modelo que estamos proponiendo es el siguiente:
+
+```{r example-dummy-coding-model-plot}
+my_set %>%
+  ggplot(aes(x=x, y=y, color=fac, group=fac)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+
+Como vemos, con esta formulación la aproximación propuesta consiste en explicar los datos mediante
+cuatro rectas de regresión, todas paralelas entre sí (misma pendiente en cada recta). El coeficiente
+$\beta_1$ representa la pendiente de cada una de estas rectas. Las variables fictias permiten
+comparar **diferencias entre grupos** dentro del modelo. En este caso, con la opción por defecto
+(`contr.treatment`) de usar *dummy coding*, los coeficientes que acompañan a cada variable ficticia
+representan la **diferencia promedio estimada entre cada nivel y el nivel de referencia**. Por ejemplo,
+vemos que el coeficiente de `facoeste` es $-7.07$, puesto que la recta queda por debajo de la recta
+del nivel de referencia que es `fac="este"`. Análogamente, los coeficientes de las otras dos
+variables ficticias son mayores puesto que sus rectas quedan por encima de la del grupo de referencia.
+
+Por ejemplo, para el grupo de referencia de los casos con `fac="este"` la recta de regresión
+que propone este modelo es:
+
+$$ y = \beta_0 + \beta_1 x; \quad facnorte = facoeste = facsur = 0.$$
+
+Y para el caso del grupo de casos en los que `fac="norte"`, la recta es:
+
+$$ y = \beta_0 + \beta_1 x + \beta_{norte}; \quad facnorte = 1; \; facoeste = facsur = 0.$$
+
+Analogamente, podemos obtener de forma sencilla la recta propuesta para los otros dos grupos.
+
+<!-- ## Representación gráfica -->
+
+<!-- ```{r plot-insurance-ns, fig.dim=c(6,5)} -->
+<!-- # xtabs(~ side, data = chredlin) # Contar casos por cada categoría -->
+<!-- plot(involact ~ side, data = chredlin, xlab = "Zone in Chicago", ylab="Perc. FAIR insurance") -->
+<!-- ``` -->
+
+
+## Referencias adicionales
+
+El documento `2.B-Variables dummy` de este tema incluye abundante información adicional sobre
+diferentes estrategias de codificación de valores categóricos para su inclusion en modelos de
+análisis de datos.
+
+Además, se pueden consultar otras fuentes de información:
+
+- La documentación de `forcats` incluye un [documento introductorio](https://forcats.tidyverse.org/articles/forcats.html) para ilustrar los usos básicos
+de algunas funciones incluidas en este paquete.
+
+- El capítulo 15 (versión online) de Wickham y Grolemund [-@wickham2016r] contiene 
+una descripción detallada del uso de `forcats` para procesar datos categóricos en `tidyverse`.
+
+# Portabilidad de tipos de datos
+
+En muchas ocasiones, el flujo de trabajo de preparación de datos nos enfrenta a situaciones
+en las que hay que realizar una **portabilidad de tipos de datos**, es decir, cambiar
+el tipo de representación de información de una variable a otro tipo más conveniente.
+
+La siguiente tabla, tomada de Aggarwal [-@aggarwal2015], resume los principales 
+tipos de portabilidades de datos que se suelen considerar en esta fase:
+
+```{r data-portability, echo=FALSE}
+
+text_tbl <- data.frame(
+  Tipo_origen = c("Numérico", "Categórico", "Texto", "Serie temporal", "Serie temporal",
+                  "Secuencia discreta", "Espacial", "Grafo", "Cualquier tipo"),
+  Tipo_destino = c("Categórico", "Numérico", "Numérico", "Secuencia discreta",
+                   "Numérico multidimensional", "Numérico multidimensional", "Numérico multidimensional", "Numérico multidimensional",
+                   "Grafo"
+  ),
+  Método = c("Discretización, binarización, *binning*, *quantization*", "Binarización (variables binarias)",
+             "Latent Semantic Analysis (LSA)",
+             "Symbolic Aggregate approXimation (SAX)",
+             "Discrete Wavelet Transform (DWT), Discrete Fourier Transform (DFT)", "DWT, DFT", "2D DWT, DFT", "Multi-Dimensional Scaling (MDS), espectral",
+             "Grafo de similaridad")
+)
+
+kable(text_tbl) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, width="15em")
+
+```
+
+De entre las portabilidades básicas más habituales, podemos resaltar el paso de datos
+cuantitativos (numéricos) a datos cualitativos (categóricos) y viceversa.
+
+## Dato cuantiativo a cualitativo: discretización
+
+Un caso habitual es transformar una variable cuantitativa en una categórica. Esto se 
+consigue definiendo una serie de intervalos y **asignando los valores originales al
+intervalo correspondiente**. De esta forma, acabamos con una variable categórica con tantas
+categorías como intervalos hayamos definido.
+
+**Importante**: en inglés se usan varios términos alternativos para identificar esta operación:
+
+  - *Discretization*, más habitual en documentos académicos y libros de texto, como [@aggarwal2015].
+  - *Binning*, más común en blogs, documentación técnica, etc. Viene de agrupar los valores
+  en *bins*, los intervalos usados en un histograma para representar las barras. Es importante
+  no confundirlo con *binarization*, la operación para representar un dato cualitativo con
+  variables binarias (o una variable cuantitativa a valores binarios {0, 1}).
+
+Un factor de diseño importante en esta operación es determinar el número de intervalos
+definidos y su rango. Existen varias alternativas:
+
+  1. **Ancho fijo**: Cada intervalo $[a, b]$ se define de forma que su amplitud $(b-a)$ sea la misma para
+  todos los intervalos. Debemos tener mucho cuidado si la **distribución de valores no
+  es uniforme**, puesto que el número de puntos que caerá dentro de cada intervalo puede ser
+  muy diferente. Esto puede perjudicar o falsear seriamente los resultados de nuestro
+  análisis.
+  
+  2. **Ancho fijo (log)**: Cada intervalo $[a, b]$ se define de forma que su amplitud en escala logarítmica
+  $log(b) - log(a)$ tiene el mismo valor. Esta variante incluye una transformación de los
+  datos cuando la distribución tiene mucha dispersión (cola larga).
+  
+  3. **Discretización por cuantiles**: La amplitud de cada intervalo se define de forma que, aproximadamente, todos contengan
+  el mismo número de muestras. La desventaja de esta aproximación es que los límites de los
+  diferentes intervalos pueden ser muy dispares, y dificultar la interpretación. 
+
+
+En muchos casos, la decisión de discretizar una variable cuantitativa proviene de conocimiento
+teórico previo en el área de aplicación. Sin embargo, podemos encontrar muchos autores que alertan
+**en contra de discretizar variables cuantitativas** de forma habitual 
+[@harrell2015regression; @osborne2012best]. Las principales razones son:
+
+  - Se pierde información en el proceso (como en muchos otros casos de portabilidad de datos).
+  - Los resultados del modelo pueden ser engañosos o imprecisos, por ejemplo si al discretizar
+  tenemos grupos con muchos datos y otros con muy pocos datos.
+  - No podemos observar la evolución del "efecto" de la variable cuantitativa sobre la salida,
+  a lo largo de todo su rango de valores. Esto es ahora relativamente sencillo de representar
+  gráficamente, incluso para variables transformadas, con el paquete `effects`.
+  
+En el nuevo libro de Kuhn y Johnson sobre *feature engineering*, los autores describen
+de forma excelente un [caso de estudio](http://www.feat.engineering/engineering-numeric-predictors.html#binning) 
+sobre discretización de variables continuas. Ese ejemplo demuestra mucho de los problemas
+que pueden surgir, asociados a este procedimiento.
+
+En R, la discretización de variables cuantitativas se implementa, entre otras alternativas,
+mediante la función `cut()` de R base o la función `cut2()` del paquete`Hmisc` 
+[@torgo_data_2016; @harrell2015regression].
+
+Veamos un ejemplo con la variable `age` del dataset `faraway::pima`. Si queremos crear 5 intervalos,
+todos ellos con la misma longitud, usamos la función `cut()`:
+
+```{r pima-cut}
+summary(pima$age)
+pima %>%
+  mutate(newage = cut(age, 5)) %>%
+  select(newage) %>%
+  table()
+```
+
+
+También se pueden poner nuevas etiquetas a los intervalos creados:
+
+```{r pima-cut-labels}
+pima %>%
+  mutate(newage = cut(age, 5, 
+                      labels = c("joven", "mediana edad", "veterana",
+                                 "mayor", "muy mayor"))) %>%
+  select(newage) %>%
+  table()
+```
+
+
+Aquí se hace patente el problema del desequilibrio en el número de casos que se asignan a cada
+intervalo. Otra opción es utilizar la función `Hmisc::cut2()` para hacer interavlos que contenga
+aproximadamente la misma frecuencia de casos. Sin embargo, si queremos definir nuestras propias
+etiquetas para cada intervalo con esta función debemos hacerlo aparte:
+
+```{r pima-cut2-labels}
+summary(pima$age)
+pima %>%
+  mutate(newage = factor(cut2(age, g=5))) %>%
+  select(newage) %>%
+  table()
+
+pima %>%
+  mutate(newage = factor(cut2(age, g=5), 
+                         labels = c("menos24", "menos28", "menos34",
+                                    "menos44", "44 a 81"))) %>%
+  select(newage) %>%
+  table()
+```
+
+
+## Dato cuantitativo a binario: binarización
+
+Un caso particular de portabilidad de datos cuantitativos a cualitativos es la binarización,
+en inglés *binarization* [@zheng_feature_2018]. Este proceso suele ser más útil y efectivo en modelos
+de predicción que en explicativos.
+
+Un ejemplo sería la construcción de un sistema de recomendación a partir de los datos
+del [Echo Nest Taste Profile Dataset](https://labrosa.ee.columbia.edu/millionsong/tasteprofile). 
+Este conjunto de datos, referenciado en el capítulo 2 de [@zheng_feature_2018], contiene
+más de 48 millones de entradas que relacionan en forma de tripletas `(ID_usuario, ID_cancion, num_reprod)`
+el número de veces que una canción ha sido reproducida por un usuario individual. 
+
+Si queremos usar esta información para recomendar canciones a otros usuarios nos 
+encontramos con el problema de que un grupo pequeño de canciones (1%) acumula miles 
+de reproducciones, mientras que el 99% de las canciones restantes tienen menos de 24 
+reproducciones. Si intentamos aplicar cualquier algoritmo de predicción sobre estos
+datos, los valores de reproducciones excesivamente grandes de ese 1% de canciones
+prevalecerán sobre el resto.
+
+Una solución para un sistema predictivo es sustituir el valor real de reproducciones
+por una variable binaria que tome valores $\{0, 1\}$. Es decir, la variable vale $1$ si
+el usuario ha escuchado alguna vez esa canción y $0$ en caso contrario. Con esta sencilla
+operación, y suponiendo que el número de canciones que escucha un usuario es limitado
+(por lo que la matriz de recomendación será *dispersa*), esta representación resulta más
+**robusta** para detectar gustos comunes entre los usuarios.
+
+## Dato cualitativo a cuantiativo: variables binarias
+
+Como ya hemos visto, los datos cualitativos no se pueden utilizar directamente en muchos
+modelos y algoritmos, por lo que primero debemos representarlos numéricamente siguiendo
+alguna estrategia. Normalmente, la estrategia escogida determina el tipo de aproximación
+que está proponiendo nuestro modelo para explicar los datos.
+
+Un ejemplo sería la utilización de variables binarias (*dummy variables*) para incluir
+variables categóricas en un modelo de regresión. En el Tema 3 presentamos más alternativas
+de codificación de variables categóricas usando estrategias similares.
+
+# Detección e imputación de datos faltantes
+
+Es frecuente encontrarnos con valores desconocidos en muchos conjuntos de datos reales. Las
+causas que provocan la ausencia de datos pueden ser diversas: desde errores de medida hasta
+problemas o roturas de instrumentos, pasando por razones más específicas (como tendencia
+de algunas personas con ciertas características a no responder a algunas preguntas sobre
+temas sensibles). A estos valores desconocidos se les denomina **datos faltantes** (en
+inglés *missing data*).
+
+Los valores faltantes se representan de forma estándar en R mediante el valor especial `NA`
+(nótese que no va rodeado de comillas). Estas siglas indican *not available*, es decir, que
+el valor del dato en esa posición no está disponible.
+
+Los datos faltantes pueden dificultar mucho algunos análisis. Por ejemplo, determinados
+algoritmos de aprendizaje máquina como SVM, redes neuronales o muchos modelos lineales no
+toleran en absoluto la presencia de datos faltantes. Sin embargo, otros algoritmos como
+los árboles de clasificación (CART) sí cuentan con implementaciones que pueden admitir la
+presencia de datos faltantes.
+
+En general, existen múltiples herramientas y estrategias para poder deducir qué valor se
+podría asignar a esos casos desconocidos. El proceso que asigna valores a los datos para
+los cuales se desconoce su valor real se denomina **imputación de datos** (en inglés
+*data imputation*).
+
+El primer problema con el que nos podemos encontrar es cómo están codificados los valores
+faltantes. En algunas ocasiones, se ha tenido la precaución de codificar estos valores
+correctamente usando el símbolo `NA`. Pero en muchos otros casos, se han usado
+valores distintos por ejemplo:
+
+  - Valores imposibles para una variable. Por ejemplo, `-1` o `-1000` para una variable
+  positiva.
+  - Fechas imposibles para datos temporales. Por ejemplo `1 enero de 1900` para datos
+  que deberían partir del año 1950 en adelante.
+  - Otros símbolos diversos, como `?`, `Unknown`, `Unk`, etc.
+  
+Son especialmente peligrosos aquellos casos en los que alguien o algún sistema decide usar
+un valor aparentemente válido para codificar un dato faltante. Por ejemplo `0` para un
+dato cuantitativo, `FALSE` para una variable lógica binaria o una fecha particular para
+un dato de fecha. Un dato faltante tampoco se debe codificar como `void`, `null`, `None` o
+cualquier otra variante que en computación identifique a un espacio de memoria vacío. La
+Figura 6.1 muestra de forma muy clara la diferencia entre un valor cero, una 
+posición de memoria vacía y un dato faltante.
+
+La única excepción son las bases de datos
+relacionales, en donde la única forma que tenemos de codificar un dato faltante en una
+celda suele ser mediante el valor `NULL`. Al definir el esquema de una tabla de datos,
+tendremos que indicar explícitamente si en uno de los campos pueden existir datos
+faltantes o no.
+
+<br/ >
+
+```{r, echo = FALSE, out.width="70%", fig.cap="0 vs null vs undefined: Fuente: [Twitter, S. Baumgartner (dic. 2018)](https://twitter.com/ddprrt/status/1074955395528040448)"}
+include_graphics("figs/Zero-null-undefined.png")
+```
+
+<!-- <br/ > -->
+
+<!-- El documento anexo `2.B - Datos faltantes e imputación de datos` ofrece una descripción más -->
+<!-- detallada de los diferentes métodos de detección, visualización e imputación de datos faltantes. -->
+
+## Algunos consejos para trabajo con datos faltantes
+
+En la sección 3.10 de [@harrell2015regression], podemos encontrar algunos consejos muy
+generales sobre cómo afrontar el tratamiento de datos faltantes. Un paso previo
+imprescindible es identificar en nuestro conjunto de datos la **proporción de casos con
+algún valor faltante**, que vamos a denotar como $f$.
+
+Los casos a considerar son:
+
+  - Si $f < 0.03$: El problema no es grave, y se pueden utilizar sin demasiado riesgo
+  técnicas sencillas de imputación de datos, por ejemplo:
+  
+    + Asignar a una variable cuantitativa la mediana del resto de sus valores conocidos.
+    + Asignar a una variable categórica la categoría más frecuente del resto de sus valores conocidos.
+    + También se pueden descartar los casos con valores faltantes usando `complete.cases()`.
+    
+  - Si $f \geq 0.03$ Podemos utilizar imputación múltiple o alguna técnica de imputación que
+  explore correlaciones o similaridades entre los casos. También sería conveniente modificar
+  todas las fórmulas de ajuste y evaluación del modelo (e.g. en modelos lineales) para tener
+  en cuenta los efectos de la imputación. Por ejemplo, la función `rms::fit.mult.impute()`
+  automatiza estos ajustes.
+  
+  - Si hay múltiples variables con valores faltantes frecuentes se necesitará repetir el
+  proceso de imputación varias veces, intentando realizar un "análisis de sensibiliad" para
+  determinar si nuestro sistema de imputación está introduciendo sesgo en los datos.
+  
+Hay un gran número de paquetes en R que permiten imputación de datos faltantes, implementando
+a veces técnicas muy sofisticadas (a costa de elevados tiempos de cómputo y grandes requisitos
+de memoria y capacidad de procesado). Entre ellos cabe destacar `mice`, `Amelia`, `Hmisc` con
+su función `aregImpute`, las funciones del paquete `DMwR2` para imputación y comprobación,
+`imputeR`, `simputation`, etc. Destaca también `VIM` (Visualizaton and Imputation of Missing
+Values), por incluir potentes herramientas gráficas para detección de patrones en la aparición
+de datos faltantes en nuestros datasets.
+
+# Comprobación de reglas de datos
+
+Otro aspecto muy importante en la preparación de datos es la validación de los rangos de valores
+y categorías específicas que toman nuestras variables. De esta forma podemos detectar múltiples
+problemas de inconsistencias (diferentes representaciones del mismo valor), errores en la
+introducción de datos, en el volcado de valores desde otros sistemas de información, etc.
+
+En R, los paquetes `validate` y `validatetools` implementan funciones y una sintaxis que
+permite automatizar de forma sencilla y conveniente las tareas de validación. Entre otras
+funciones, estos paquetes permiten:
+
+  - Comprobar nuestros datasets pasando reglas predefinidas, bien dentro del mismo
+  dataset o dependientes de otros datasets.
+  - Importar y exportar conjuntos de reglas de archivos estructurados o sin formato.
+  - Visualizar e inspeccionar los resultados de un paso de validación.
+  - Realizar tareas básicas de mantenimiento de reglas.
+  - Definir y mantener indicadores de calidad de datos, independientes del dataset.
+
+La [viñeta de introducción a `validate`](https://cran.r-project.org/web/packages/validate/vignettes/introduction.html) 
+introduce muchas de estas funciones con  ejemplos fáciles de replicar.
+
+<!-- https://tidymodels.github.io/recipes/articles/Simple_Example.html#checks -->
+
+# Referencias adicionales
+
+En general, no existen muchas referencias que reúnan en un solo volumen información
+diversa sobre todas las técnicas que hemos visto aquí, y sobre las que se introducirán
+en el documento `2.2 - Feature Engineering`, dentro de este mismo tema.
+
+Durante muchos años, una de las pocas referencias sobre limpieza y preparación de datos
+verdaderamente amplia fue [@pyle_data_1999]. Aunque ya algo desfasado en muchos aspectos
+técnicos, todavía reúne un buen número de consejos y estrategias generales que han ido
+apareciendo de nuevo en otras fuentes.
+
+Entre las referencias posteriores, cabe destacar el resumen completo incluido en
+[@torgo_data_2016], así como el extenso tratamiento sobre datos faltantes y transformaciones
+de variables en el contexto de modelos lineales de Harrell [-@harrell2015regression]. También
+se encuentran algunos apuntes interesantes en el primer libro de Kuhn y Johnson
+[-@kuhn_applied_2013]. Ambos autores preparan [un nuevo volumen](http://www.feat.engineering/) 
+exclusivamente dedicado a todos los aspectos de *feature engineering*. Fox y Wesiberg
+[-@fox2011] tratan de forma detallada muchos aspectos de transformación de variables, 
+incluyendo una discusión y ejemplos paso a paso de cómo representar los efectos de las
+variables transformadas mediante el paquete `effects`, así como la manera de reportar
+los resultados deshaciendo las transformaciones aplicadas a las variables de nuestro
+modelo.
+
+En Python, una completa referencia ha sido publicada recientemente [@zheng_feature_2018].
+Cabe destacar también [@buuren_flexible_2018] como la mejor y más completa referencia
+práctica sobre tratamiento de datos faltantes que existe en la actualidad. El autor
+lo es también del paquete R `mice`. La versión electrónica del libro está disponible
+de forma gratuita (https://stefvanbuuren.name/fimd/).
+
+Es destacable también la obra enciclopédica sobre técnicas de *data mining*
+de Aggarwal [-@aggarwal2015]. El capítulo 2 explica con detalle muchas de las técnicas
+que hemos visto aquí de forma sistemática (y un tanto "académica"), con muchas referencias
+externas. Finalmente, también merece atención [@maydanchik_data_2007], que expone de manera
+sistemática y efectiva cómo elaborar estrategias de evaluación de calidad de los datos,
+y producir reglas de validación y control.
+
+# Bibliografía y referencias
+
+<!-- Esta sección se pone al final, sin contenido, porque Pandoc inserta automáticamente
+al final  del documento la lista de referencias bibliográficas que hayamos usado desde
+nuestro fichero .bib (formato BibTeX)-->
+
+<!-- Ejemplo Bootstrap panel-group -->
+
+<!-- <div class="panel-group"> -->
+<!--   <div class="panel panel-default"> -->
+<!--     <div class="panel-heading">Panel Header</div> -->
+<!--     <div class="panel-body">Panel Content</div> -->
+<!--   </div> -->
+<!--   <div class="panel panel-primary"> -->
+<!--     <div class="panel-heading">Panel Header</div> -->
+<!--     <div class="panel-body">Panel Content</div> -->
+<!--   </div> -->
+<!--   <div class="panel panel-success"> -->
+<!--     <div class="panel-heading">Panel Header</div> -->
+<!--     <div class="panel-body">Panel Content</div> -->
+<!--   </div> -->
+<!-- </div> -->

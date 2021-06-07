@@ -1,0 +1,87 @@
+---
+title: "Mi primer documento"
+author: "Felipe Ortega"
+date: "21/5/2019"
+output: 
+  html_document:
+    theme: flatly  # Tema general para maquetado de la página
+    highlight: tango  # Tema de resaltado de código
+---
+
+```{r setup, include=FALSE}
+# Este chunk (trozo) de código R está al principio del documento
+# Suele incluir todas las sentencias de importación de paquetes
+# así como las órdenes de configuración global, válidas para todo
+# el documento.
+
+# Por defecto, configuramos las opciones de chunks de código en
+# el documento para que siempre se muestre el código del chunk
+# y para que la salida no lleve delante ningún símbolo especial
+knitr::opts_chunk$set(echo = TRUE, comment = NA)
+
+```
+
+# Título principal
+
+Tras el título principal tenemos la introducción del documento.
+
+## R Markdown
+
+Este es un documento con R Markdown. El formato [Markdown](https://es.wikipedia.org/wiki/Markdown)
+es un sistema de sintaxis para
+resaltar contenidos en la web, más sencillo de aprender y escribir que el código HTML,
+basado en etiquetas. El objetivo es que sea fácil para un humano escribir en este
+formato, al tiempo que luego podamos convertir sin esfuerzo el documento en contenido
+HTML que pueda mostrar un navegador web.
+
+Para conocer más detalles sobre R Markdown, se puede visitar: <http://rmarkdown.rstudio.com>.
+En las diapositivas del curso también se incluyen referencias y enlaces adicionales
+para aprender más sobre R Markdown.
+
+## Procesar R Markdown para crear documentos
+
+Al abrir un documento R Markdown en RStudio, en la región del editor (arriba-izquierda) el
+menú superior de botones muestra un botón **Knit**, con el icono de una madeja de lana y
+una aguja de molde. Cuando pulsamos ese botón, RStudio automáticamente invoca los comandos
+necesarios de varios paquetes R para generar un documento de salida, a partir del archivo 
+R Markdown.
+
+El documento incluirá todo el texto que hayamos escrito, resaltado según la sintaxis de 
+Markdown que hayamos empleado. Además, todos los *chunks* de R que hayamos incluido se
+ejecutan secuencialmente, y el resultado (numérico, salida de modelos, gráficos para
+visualización, etc.) se integra automáticamente en el documento.
+
+A continuación, se muestra cómo incluir un chunk en R. De forma análoga, se pueden
+incluir chunks en otros lenguajes que también entienda la plataforma (Python, SQL, etc.).
+
+````r
+```{r, titulo-chunk, opcion1=valor, opcion2=valor}`r ''`
+1 + 1
+```
+````
+
+Por ejemplo:
+
+```{r lm}
+y <- rnorm(50)
+x <- rnorm(50)
+lm0 <- lm(x ~ y)
+lm0
+```
+
+## Incorporar gráficos
+
+Cuando escribamos un chunk que contiene alguna instrucción para construir un gráfico, dicho
+gráfico se genera automáticamente y se integra dentro de nuestro documento.
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+En este último ejemplo, se ha añadido en la cabecera del chunk el parámetro `echo = FALSE`.
+Esto evita que se imprima en el documento el código R que ha generado el gráfico.
+
+En los siguientes ejemplos, veremos bastantes opciones más que podemos emplear para 
+crear documentos de forma rápida y versátil.
+
+

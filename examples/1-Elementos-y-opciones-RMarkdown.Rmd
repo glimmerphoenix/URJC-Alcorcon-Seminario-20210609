@@ -1,0 +1,118 @@
+---
+title: "Elementos y opciones de trabajo con RMarkdown"
+author: "Felipe Ortega, DSLAB, URJC"
+date: "21/5/2019"
+output: 
+  html_document:
+    toc: true  # Incluye tabla de contenidos automática
+    toc_float: true  # Mantener ToC visible a la izquierda
+    toc_depth: 2  # Incluir dos niveles de profundidad en ToC
+    number_sections: true  # Autonumerado de secciones
+    theme: flatly  # Tema general para maquetado de la página
+    highlight: tango  # Tema de resaltado de código
+---
+
+```{r setup, include=FALSE}
+# Este chunk (trozo) de código R está al principio del documento
+# Suele incluir todas las sentencias de importación de paquetes
+# así como las órdenes de configuración global, válidas para todo
+# el documento.
+
+# Por defecto, configuramos las opciones de chunks de código en
+# el documento para que siempre se muestre el código del chunk
+# y para que la salida no lleve delante ningún símbolo especial
+knitr::opts_chunk$set(echo = TRUE, comment = NA)
+
+# Importamos algunos paquetes R para un análisis de ejemplo
+library(tidyverse)
+library(knitr)
+library(GGally)
+library(egg)
+library(Hmisc)
+library(HSAUR3)
+```
+
+# Ejemplo: Estudio de ganancia de peso con ANOVA
+
+Para este ejemplo, nos basamos en el caso de estudio presentado
+por Hothorn y Everitt (Hothorn & Everitt, 2014), sobre un estudio acerca de la
+ganancia de peso experimentada por ratas de laboratorio, alimentadas con 4
+dietas diferentes de acuerdo con dos posibles variables categóricas:
+
+- Cantidad de proteína (`type`): con valores `High` o `Low`.
+- Fuente de proteína (`source`): con valores `Beef` o `Cereal`.
+
+El diseño del experimento es completamente balanceado, teniendo cada celda
+de combinación de valores `type` y `source` el mismo número de muestras.
+
+Por último, la variable `weightgain` registra, para cada caso, el aumento de peso
+experimentado por el animal al final del periodo de estudio.
+
+El documento original está disponible en el siguiente 
+[enlace](https://cran.r-project.org/web/packages/HSAUR3/vignettes/Ch_analysis_of_variance.pdf).
+
+## Diccionario de variables
+
+Ejemplo de tabla con kable.
+
+## EDA
+
+Algunos ejemplos sencillos de resumen de datos.
+
+```{r describe-df}
+# Usamos la nueva versión con salida HTML de la conocida
+# función Hmisc::describe()
+html(describe(weightgain))
+```
+
+```{r ggpair, fig.width=9, fig.height=6}
+# La función ggpairs proviene del paquete GGally
+pm <- ggpairs(weightgain, mapping = aes(color = source),
+        lower = list(combo = "facetdensity"),
+        legend = 1
+        )
+# Añadimos transparencia al diagrama de densidad de la celda (3,3)
+pm[3,3] <- pm[3,3] + aes(alpha = 0.5)
+pm
+```
+
+
+## ANOVA
+
+A continuación, reproducimos el cálculo del modelo ANOVA sobre los datos
+del experimento.
+
+```{r anova}
+# Cálculo de un modelo anova
+# Variable respuesta: weightgain
+# Entradas: source + type + source:type
+# Fórmula: weightgain ~ source + type + source:type
+# El operador * permite compactar la representación de este modelo
+# en la fórmula
+wg_aov <- aov(weightgain ~ source * type, data = weightgain)
+
+# Resumen de resultados del modelo
+summary(wg_aov)
+```
+
+Extraemos los coeficientes correspondientes a cada variable. Los niveles de
+referencia son los escogidos por defecto en el contraste estándar de R, es
+decir, en este caso `source = "Beef"` y `type = "High"`.
+
+```{r anova-coef}
+# Coeficientes asociados al modelo
+coef(wg_aov)
+```
+
+Finalmente, representamos un gráfico con los efectos univariantes que podemos
+captar en el diseño experimental.
+
+```{r desing-plot, fig.cap="Gráfico que representa los efectos univariantes de cada nivel de las variables categóricas analizadas en el experimento."}
+plot.design(weightgain)
+```
+
+
+## Referencias
+
+* (Hothorn & Everitt, 2014) Torsten Hothorn and Brian S. Everitt (2014). *A Handbook of Statistical Analyses Using R*, Chapman & Hall/CRC.
+* (Hand et al, 1994) D. J. Hand, F. Daly, A. D. Lunn, K. J. McConway and E. Ostrowski (1994). *A Handbook of Small Datasets*, Chapman and Hall/CRC, London.
